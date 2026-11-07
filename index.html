@@ -229,7 +229,14 @@
       try { d = JSON.parse(ev.data); if (d.event !== "message") return; m = JSON.parse(d.message); } catch (e) { return; }
       if (m.tipo === "estado") mostrarEstado(m);
       else if (m.tipo === "resultados" && m.re === esperandoBusca) mostrarResultados(m);
-      else if (m.tipo === "erro") toast("⚠️ " + m.msg);
+      else if (m.tipo === "erro") {
+        if (m.re && m.re === esperandoBusca) {
+          esperandoBusca = null;
+          const d = document.createElement("div"); d.className = "vazio";
+          d.textContent = "⚠️ A busca não funcionou. Mande uma foto desta tela: " + m.msg;
+          $("lista").innerHTML = ""; $("lista").appendChild(d);
+        } else toast("⚠️ " + m.msg);
+      }
     };
   }
 
