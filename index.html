@@ -176,7 +176,7 @@
     ultimoEstado = Date.now();
     status("ok", "Conectado");
     $("nomeAgora").textContent = e.n || "Nada tocando";
-    $("artAgora").textContent = e.a || " ";
+    $("artAgora").textContent = e.a || (e.dbg ? "diag: " + e.dbg : " ");
     const capa = $("capa");
     const nova = capaEl(e.c); nova.id = "capa";
     capa.replaceWith(nova);
