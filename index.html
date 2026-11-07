@@ -113,7 +113,6 @@
 
 <script>
 (function () {
-  const RELE = "https://ntfy.sh/";
   const $ = id => document.getElementById(id);
 
   // Chave: vem do link (#chave) e fica salva neste celular
@@ -130,8 +129,8 @@
     return;
   }
 
-  const topicoCmd = "rp" + chave + "c";
-  const topicoResp = "rp" + chave + "r";
+  const topicoCmd = "djradio/" + chave + "/c";
+  const topicoResp = "djradio/" + chave + "/r";
   let modo = "musica";
   let pausado = true;
   let ultimoEstado = 0;
@@ -149,13 +148,9 @@
   }
 
   let contador = 0;
-  async function enviar(t, extra = {}) {
-    const id = Date.now().toString(36) + (contador++);
-    try {
-      await fetch(RELE + topicoCmd, { method: "POST", body: JSON.stringify({ t, id, ts: Date.now(), ...extra }) });
-    } catch (e) {
-      toast("Sem internet no celular");
-    }
+  const novoId = () => Date.now().toString(36) + "w" + (contador++);
+  function enviar(t, extra = {}, id = novoId()) {
+    if (!rele || !rele.publicar(topicoCmd, { t, id, ts: Date.now(), ...extra })) toast("Sem conexão. Tentando de novo…");
     return id;
   }
 
@@ -217,27 +212,137 @@
     });
   }
 
-  // Recebe as respostas do computador
-  let fonte;
-  function conectar() {
-    if (fonte) fonte.close();
-    fonte = new EventSource(RELE + topicoResp + "/sse");
-    fonte.onopen = () => { enviar("estado"); verificarResposta(); };
-    fonte.onerror = () => status("erro", "Reconectando…");
-    fonte.onmessage = ev => {
-      let d, m;
-      try { d = JSON.parse(ev.data); if (d.event !== "message") return; m = JSON.parse(d.message); } catch (e) { return; }
-      if (m.tipo === "estado") mostrarEstado(m);
-      else if (m.tipo === "resultados" && m.re === esperandoBusca) mostrarResultados(m);
-      else if (m.tipo === "erro") {
-        if (m.re && m.re === esperandoBusca) {
-          esperandoBusca = null;
-          const d = document.createElement("div"); d.className = "vazio";
-          d.textContent = "⚠️ A busca não funcionou. Mande uma foto desta tela: " + m.msg;
-          $("lista").innerHTML = ""; $("lista").appendChild(d);
-        } else toast("⚠️ " + m.msg);
-      }
+  // ---------- Cliente MQTT mínimo (3.1.1 sobre WebSocket) ----------
+  // Conecta em vários servidores ao mesmo tempo; publica em todos e entrega
+  // cada mensagem uma vez só (pelo campo "id" dentro do JSON).
+  const SERVIDORES_MQTT = [
+    "wss://broker.hivemq.com:8884/mqtt",
+    "wss://broker.emqx.io:8084/mqtt",
+  ];
+
+  function criarRele(opcoes) {
+    // opcoes: { servidores, assinar: [topicos], aoReceber(topico, obj), aoStatus(conectados, total) }
+    const servidores = opcoes.servidores || SERVIDORES_MQTT;
+    const enc = new TextEncoder(), dec = new TextDecoder();
+    const vistos = [];
+    const jaVisto = id => {
+      if (!id) return false;
+      if (vistos.includes(id)) return true;
+      vistos.push(id); if (vistos.length > 300) vistos.shift();
+      return false;
     };
+    const str = s => { const b = enc.encode(s); return [b.length >> 8, b.length & 255, ...b]; };
+    const tam = n => { const o = []; do { let d = n % 128; n = Math.floor(n / 128); if (n > 0) d |= 128; o.push(d); } while (n > 0); return o; };
+    const pacote = (tipo, corpo) => new Uint8Array([tipo, ...tam(corpo.length), ...corpo]);
+
+    let topicos = (opcoes.assinar || []).slice();
+    let parado = false;
+    const conexoes = servidores.map(url => ({ url, ws: null, ok: false, espera: 2000, buf: new Uint8Array(0), ping: null }));
+    const avisar = () => opcoes.aoStatus && opcoes.aoStatus(conexoes.filter(c => c.ok).length, conexoes.length);
+
+    function assinar(c, lista) {
+      if (!c.ok || !lista.length) return;
+      const corpo = [0, 1];
+      lista.forEach(t => corpo.push(...str(t), 0));
+      c.ws.send(pacote(0x82, corpo));
+    }
+
+    function tratar(c, tipo, corpo) {
+      const t = tipo >> 4;
+      if (t === 2) { // CONNACK
+        if (corpo[1] !== 0) { c.ws.close(); return; }
+        c.ok = true; c.espera = 2000; avisar();
+        assinar(c, topicos);
+        if (opcoes.aoConectar) opcoes.aoConectar(c.url);
+      } else if (t === 3) { // PUBLISH
+        const qos = (tipo >> 1) & 3;
+        const lt = (corpo[0] << 8) | corpo[1];
+        const topico = dec.decode(corpo.slice(2, 2 + lt));
+        let p = 2 + lt; if (qos > 0) p += 2;
+        const texto = dec.decode(corpo.slice(p));
+        let obj; try { obj = JSON.parse(texto); } catch (e) { return; }
+        if (obj && obj.id && jaVisto(obj.id + "|" + topico)) return;
+        try { opcoes.aoReceber(topico, obj); } catch (e) {}
+      }
+    }
+
+    function receber(c, dados) {
+      const novo = new Uint8Array(dados);
+      const b = new Uint8Array(c.buf.length + novo.length); b.set(c.buf); b.set(novo, c.buf.length);
+      let p = 0;
+      while (p + 2 <= b.length) {
+        let mult = 1, valor = 0, i = p + 1, byte;
+        do { if (i >= b.length) { c.buf = b.slice(p); return; } byte = b[i++]; valor += (byte & 127) * mult; mult *= 128; } while (byte & 128);
+        if (i + valor > b.length) break;
+        tratar(c, b[p], b.slice(i, i + valor));
+        p = i + valor;
+      }
+      c.buf = b.slice(p);
+    }
+
+    function conectar(c) {
+      if (parado) return;
+      let ws;
+      try { ws = new WebSocket(c.url, "mqtt"); } catch (e) { return religar(c); }
+      c.ws = ws; c.buf = new Uint8Array(0); ws.binaryType = "arraybuffer";
+      ws.onopen = () => {
+        const id = "dj" + Math.random().toString(36).slice(2, 12);
+        ws.send(pacote(0x10, [...str("MQTT"), 4, 0x02, 0, 60, ...str(id)]));
+        clearInterval(c.ping);
+        c.ping = setInterval(() => { try { if (ws.readyState === 1) ws.send(new Uint8Array([0xC0, 0])); } catch (e) {} }, 30000);
+      };
+      ws.onmessage = ev => receber(c, ev.data);
+      ws.onerror = () => {};
+      ws.onclose = () => { clearInterval(c.ping); const era = c.ok; c.ok = false; if (era) avisar(); religar(c); };
+    }
+    function religar(c) {
+      if (parado) return;
+      setTimeout(() => conectar(c), c.espera);
+      c.espera = Math.min(c.espera * 2, 30000);
+    }
+
+    conexoes.forEach(conectar);
+
+    return {
+      publicar(topico, obj, reter) {
+        const corpo = [...str(topico), ...enc.encode(JSON.stringify(obj))];
+        const pk = pacote(0x30 | (reter ? 1 : 0), corpo);
+        let algum = false;
+        conexoes.forEach(c => { if (c.ok) { try { c.ws.send(pk); algum = true; } catch (e) {} } });
+        return algum;
+      },
+      trocarTopicos(novos) {
+        topicos = novos.slice();
+        conexoes.forEach(c => { if (c.ws) { try { c.ws.close(); } catch (e) {} } });
+      },
+      conectados() { return conexoes.filter(c => c.ok).length; },
+      parar() { parado = true; conexoes.forEach(c => { clearInterval(c.ping); try { c.ws && c.ws.close(); } catch (e) {} }); },
+      reconectar() { conexoes.forEach(c => { if (!c.ok) { c.espera = 500; try { c.ws && c.ws.close(); } catch (e) { conectar(c); } } }); },
+    };
+  }
+
+  // Recebe as respostas do computador
+  function aoReceber(topico, m) {
+    if (m.tipo === "estado") mostrarEstado(m);
+    else if (m.tipo === "resultados" && m.re === esperandoBusca) { esperandoBusca = null; mostrarResultados(m); }
+    else if (m.tipo === "erro") {
+      if (m.re && m.re === esperandoBusca) {
+        esperandoBusca = null;
+        const d = document.createElement("div"); d.className = "vazio";
+        d.textContent = "⚠️ A busca não funcionou. Mande uma foto desta tela: " + m.msg;
+        $("lista").innerHTML = ""; $("lista").appendChild(d);
+      } else toast("⚠️ " + m.msg);
+    }
+  }
+  let rele = null;
+  function conectar() {
+    status("", "Conectando…");
+    rele = criarRele({
+      assinar: [topicoResp],
+      aoReceber,
+      aoConectar: () => { enviar("estado"); verificarResposta(); },
+      aoStatus: n => { if (!n) status("erro", "Reconectando…"); },
+    });
   }
 
   let tVerif;
@@ -268,17 +373,18 @@
     if (!q) return;
     $("q").blur();
     $("lista").innerHTML = '<div class="carregando"></div>';
-    const id = await enviar("busca", { q, modo });
+    const id = novoId();
     esperandoBusca = id;
+    enviar("busca", { q, modo }, id);
     setTimeout(() => {
       if (esperandoBusca === id && $("lista").querySelector(".carregando")) {
         $("lista").innerHTML = '<div class="vazio">O computador não respondeu. Veja se o Spotify está aberto.</div>';
       }
-    }, 12000);
+    }, 15000);
   });
 
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible") { conectar(); }
+    if (document.visibilityState === "visible" && rele) { rele.reconectar(); enviar("estado"); }
   });
 
   conectar();
