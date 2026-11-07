@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0d0d0d">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>Controle da Música</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%230d0d0d'/%3E%3Cpath d='M10 17.5a2.5 2.5 0 1 1-2.5-2.5c.4 0 .7.1 1 .2V6l9-2v10.5a2.5 2.5 0 1 1-1.5-2.3V7.6l-6 1.3z' fill='%23c9a24a'/%3E%3C/svg%3E">
+<style>
+  :root {
+    --bg:#0d0d0d; --card:#171717; --card2:#202020; --linha:#2a2a2a;
+    --ouro:#c9a24a; --ouro2:#e6c97a; --texto:#ededed; --suave:#9a9a9a; --erro:#e5484d; --ok:#3fb950;
+  }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html, body { margin:0; background:var(--bg); color:var(--texto); font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+  body { padding: calc(env(safe-area-inset-top) + 14px) 16px calc(env(safe-area-inset-bottom) + 24px); max-width:560px; margin:0 auto; }
+  button { font:inherit; color:inherit; border:0; background:none; cursor:pointer; }
+
+  header { display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; }
+  header h1 { font-size:18px; margin:0; font-weight:700; letter-spacing:.2px; }
+  header h1 span { color:var(--ouro); }
+  .status { display:flex; align-items:center; gap:6px; font-size:12px; color:var(--suave); }
+  .ponto { width:8px; height:8px; border-radius:50%; background:#666; }
+  .ponto.ok { background:var(--ok); } .ponto.erro { background:var(--erro); }
+
+  .agora { background:var(--card); border:1px solid var(--linha); border-radius:16px; padding:14px; display:grid; grid-template-columns:64px 1fr; gap:12px; align-items:center; }
+  .agora img, .agora .semcapa { width:64px; height:64px; border-radius:10px; object-fit:cover; background:var(--card2); }
+  .agora .nome { font-weight:700; font-size:15px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .agora .art { color:var(--suave); font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .controles { grid-column:1 / -1; display:flex; align-items:center; justify-content:center; gap:22px; margin-top:4px; }
+  .controles button { width:48px; height:48px; border-radius:50%; display:flex; align-items:center; justify-content:center; }
+  .controles button svg { width:26px; height:26px; fill:var(--texto); }
+  .controles .play { width:60px; height:60px; background:var(--ouro); }
+  .controles .play svg { fill:#111; width:28px; height:28px; }
+  .vol { grid-column:1 / -1; display:flex; align-items:center; gap:10px; }
+  .vol svg { width:18px; height:18px; fill:var(--suave); flex:none; }
+  input[type=range] { width:100%; accent-color:var(--ouro); }
+
+  .busca { margin-top:18px; position:sticky; top:0; background:var(--bg); padding:8px 0 10px; z-index:2; }
+  .campo { display:flex; gap:8px; }
+  .campo input { flex:1; min-width:0; background:var(--card); border:1px solid var(--linha); color:var(--texto); border-radius:12px; padding:13px 14px; font-size:16px; outline:none; }
+  .campo input:focus { border-color:var(--ouro); }
+  .campo button { background:var(--ouro); color:#111; font-weight:700; border-radius:12px; padding:0 16px; }
+  .abas { display:flex; gap:8px; margin-top:10px; }
+  .abas button { padding:7px 14px; border-radius:20px; border:1px solid var(--linha); font-size:13px; color:var(--suave); }
+  .abas button.sel { border-color:var(--ouro); color:var(--ouro2); background:rgba(201,162,74,.1); }
+
+  .lista { display:flex; flex-direction:column; }
+  .item { display:grid; grid-template-columns:48px 1fr auto auto; gap:10px; align-items:center; padding:9px 0; border-bottom:1px solid var(--linha); }
+  .item img, .item .semcapa { width:48px; height:48px; border-radius:8px; object-fit:cover; background:var(--card2); }
+  .item .txt { min-width:0; }
+  .item .nome { font-size:14px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .item .art { font-size:12.5px; color:var(--suave); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .item button { width:40px; height:40px; border-radius:50%; border:1px solid var(--linha); display:flex; align-items:center; justify-content:center; }
+  .item button svg { width:18px; height:18px; fill:var(--texto); }
+  .item button.tocar { background:var(--ouro); border-color:var(--ouro); }
+  .item button.tocar svg { fill:#111; }
+  .vazio { color:var(--suave); font-size:14px; text-align:center; padding:28px 10px; }
+
+  .aviso { background:var(--card); border:1px solid var(--linha); border-radius:16px; padding:22px; text-align:center; color:var(--suave); line-height:1.5; margin-top:30px; }
+  .aviso b { color:var(--texto); }
+
+  .toast { position:fixed; left:50%; bottom:calc(env(safe-area-inset-bottom) + 22px); transform:translateX(-50%) translateY(20px); background:#262626; border:1px solid var(--linha); padding:11px 18px; border-radius:24px; font-size:14px; opacity:0; transition:.25s; pointer-events:none; white-space:nowrap; z-index:9; }
+  .toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+  .carregando { width:22px; height:22px; border:2.5px solid var(--linha); border-top-color:var(--ouro); border-radius:50%; animation:gira .8s linear infinite; margin:28px auto; }
+  @keyframes gira { to { transform:rotate(360deg); } }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Controle da <span>Música</span></h1>
+  <div class="status"><div class="ponto" id="ponto"></div><span id="statusTxt">Conectando…</span></div>
+</header>
+
+<main id="app">
+  <section class="agora">
+    <div id="capa" class="semcapa"></div>
+    <div style="min-width:0">
+      <div class="nome" id="nomeAgora">Aguardando o computador…</div>
+      <div class="art" id="artAgora">&nbsp;</div>
+    </div>
+    <div class="controles">
+      <button id="bVoltar" aria-label="Voltar"><svg viewBox="0 0 24 24"><path d="M6 5h2v14H6zM9.5 12 19 5v14z"/></svg></button>
+      <button id="bPlay" class="play" aria-label="Tocar ou pausar"><svg viewBox="0 0 24 24" id="icoPlay"><path d="M8 5v14l11-7z"/></svg></button>
+      <button id="bPular" aria-label="Pular"><svg viewBox="0 0 24 24"><path d="M16 5h2v14h-2zM5 5l9.5 7L5 19z"/></svg></button>
+    </div>
+    <div class="vol">
+      <svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 5V4L8 9zm12.5 3A4.5 4.5 0 0 0 14 8v8a4.5 4.5 0 0 0 2.5-4z"/></svg>
+      <input type="range" id="vol" min="0" max="100" value="50" aria-label="Volume">
+    </div>
+  </section>
+
+  <section class="busca">
+    <form class="campo" id="formBusca">
+      <input id="q" type="search" placeholder="Buscar música ou artista" autocomplete="off" enterkeyhint="search">
+      <button type="submit">Buscar</button>
+    </form>
+    <div class="abas">
+      <button class="sel" data-modo="musica">Músicas</button>
+      <button data-modo="playlist">Playlists</button>
+    </div>
+  </section>
+
+  <section class="lista" id="lista">
+    <div class="vazio">Busque uma música para tocar agora ou pôr na fila.</div>
+  </section>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function () {
+  const RELE = "https://ntfy.sh/";
+  const $ = id => document.getElementById(id);
+
+  // Chave: vem do link (#chave) e fica salva neste celular
+  let chave = (location.hash || "").replace(/^#/, "").trim();
+  try {
+    if (chave) localStorage.setItem("controle-chave", chave);
+    else chave = localStorage.getItem("controle-chave") || "";
+  } catch (e) {}
+  if (chave && location.hash) history.replaceState(null, "", location.pathname);
+
+  if (!/^[a-z0-9]{12,}$/.test(chave)) {
+    $("app").innerHTML = '<div class="aviso"><b>Link incompleto.</b><br><br>No Spotify do computador, clique em <b>Controle Remoto</b> → <b>Copiar link</b> e abra esse link aqui no celular.</div>';
+    status("erro", "Sem link");
+    return;
+  }
+
+  const topicoCmd = "rp" + chave + "c";
+  const topicoResp = "rp" + chave + "r";
+  let modo = "musica";
+  let pausado = true;
+  let ultimoEstado = 0;
+  let esperandoBusca = null;
+
+  function status(tipo, txt) {
+    $("ponto").className = "ponto " + (tipo || "");
+    $("statusTxt").textContent = txt;
+  }
+
+  let tToast;
+  function toast(msg) {
+    const t = $("toast"); t.textContent = msg; t.classList.add("show");
+    clearTimeout(tToast); tToast = setTimeout(() => t.classList.remove("show"), 2200);
+  }
+
+  let contador = 0;
+  async function enviar(t, extra = {}) {
+    const id = Date.now().toString(36) + (contador++);
+    try {
+      await fetch(RELE + topicoCmd, { method: "POST", body: JSON.stringify({ t, id, ts: Date.now(), ...extra }) });
+    } catch (e) {
+      toast("Sem internet no celular");
+    }
+    return id;
+  }
+
+  const SVG = {
+    play: '<path d="M8 5v14l11-7z"/>',
+    pause: '<path d="M7 5h4v14H7zM13 5h4v14h-4z"/>',
+    mais: '<path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z"/>',
+  };
+
+  function capaEl(url, cls) {
+    if (!url) { const d = document.createElement("div"); d.className = "semcapa"; return d; }
+    const i = document.createElement("img"); i.alt = ""; i.loading = "lazy"; if (cls) i.className = cls;
+    i.onerror = () => { const d = document.createElement("div"); d.className = "semcapa"; if (i.id) d.id = i.id; i.replaceWith(d); };
+    i.src = url; return i;
+  }
+
+  function mostrarEstado(e) {
+    ultimoEstado = Date.now();
+    status("ok", "Conectado");
+    $("nomeAgora").textContent = e.n || "Nada tocando";
+    $("artAgora").textContent = e.a || " ";
+    const capa = $("capa");
+    const nova = capaEl(e.c); nova.id = "capa";
+    capa.replaceWith(nova);
+    pausado = !!e.pausado;
+    $("icoPlay").innerHTML = pausado ? SVG.play : SVG.pause;
+    if (document.activeElement !== $("vol")) $("vol").value = e.vol;
+  }
+
+  function mostrarResultados(r) {
+    const lista = $("lista");
+    lista.innerHTML = "";
+    if (!r.itens || !r.itens.length) {
+      lista.innerHTML = '<div class="vazio">Nada encontrado.</div>';
+      return;
+    }
+    r.itens.forEach(it => {
+      const linha = document.createElement("div"); linha.className = "item";
+      const txt = document.createElement("div"); txt.className = "txt";
+      const n = document.createElement("div"); n.className = "nome"; n.textContent = it.n;
+      const a = document.createElement("div"); a.className = "art"; a.textContent = it.a;
+      txt.append(n, a);
+      const bTocar = document.createElement("button"); bTocar.className = "tocar";
+      bTocar.setAttribute("aria-label", "Tocar agora");
+      bTocar.innerHTML = '<svg viewBox="0 0 24 24">' + SVG.play + "</svg>";
+      bTocar.onclick = () => { enviar("tocar", { u: it.u }); toast("▶ " + it.n); };
+      linha.append(capaEl(it.c), txt);
+      if (r.modo === "musica") {
+        const bFila = document.createElement("button");
+        bFila.setAttribute("aria-label", "Adicionar à fila");
+        bFila.innerHTML = '<svg viewBox="0 0 24 24">' + SVG.mais + "</svg>";
+        bFila.onclick = () => { enviar("fila", { u: it.u }); toast("➕ Na fila: " + it.n); };
+        linha.append(bFila);
+      } else {
+        linha.append(document.createElement("span"));
+      }
+      linha.append(bTocar);
+      lista.appendChild(linha);
+    });
+  }
+
+  // Recebe as respostas do computador
+  let fonte;
+  function conectar() {
+    if (fonte) fonte.close();
+    fonte = new EventSource(RELE + topicoResp + "/sse");
+    fonte.onopen = () => { enviar("estado"); verificarResposta(); };
+    fonte.onerror = () => status("erro", "Reconectando…");
+    fonte.onmessage = ev => {
+      let d, m;
+      try { d = JSON.parse(ev.data); if (d.event !== "message") return; m = JSON.parse(d.message); } catch (e) { return; }
+      if (m.tipo === "estado") mostrarEstado(m);
+      else if (m.tipo === "resultados" && m.re === esperandoBusca) mostrarResultados(m);
+      else if (m.tipo === "erro") toast("⚠️ " + m.msg);
+    };
+  }
+
+  let tVerif;
+  function verificarResposta() {
+    const pedido = Date.now();
+    clearTimeout(tVerif);
+    tVerif = setTimeout(() => {
+      if (ultimoEstado < pedido) status("erro", "Computador não respondeu");
+    }, 8000);
+  }
+
+  // Controles
+  $("bPlay").onclick = () => { enviar(pausado ? "continuar" : "pausar"); pausado = !pausado; $("icoPlay").innerHTML = pausado ? SVG.play : SVG.pause; };
+  $("bPular").onclick = () => enviar("pular");
+  $("bVoltar").onclick = () => enviar("voltar");
+  $("vol").addEventListener("change", e => enviar("volume", { v: Number(e.target.value) }));
+
+  document.querySelectorAll(".abas button").forEach(b => b.onclick = () => {
+    document.querySelectorAll(".abas button").forEach(x => x.classList.toggle("sel", x === b));
+    modo = b.dataset.modo;
+    $("q").placeholder = modo === "playlist" ? "Buscar playlist" : "Buscar música ou artista";
+    if ($("q").value.trim()) $("formBusca").requestSubmit();
+  });
+
+  $("formBusca").addEventListener("submit", async e => {
+    e.preventDefault();
+    const q = $("q").value.trim();
+    if (!q) return;
+    $("q").blur();
+    $("lista").innerHTML = '<div class="carregando"></div>';
+    const id = await enviar("busca", { q, modo });
+    esperandoBusca = id;
+    setTimeout(() => {
+      if (esperandoBusca === id && $("lista").querySelector(".carregando")) {
+        $("lista").innerHTML = '<div class="vazio">O computador não respondeu. Veja se o Spotify está aberto.</div>';
+      }
+    }, 12000);
+  });
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") { conectar(); }
+  });
+
+  conectar();
+})();
+</script>
+</body>
+</html>
