@@ -198,7 +198,7 @@
       bTocar.innerHTML = '<svg viewBox="0 0 24 24">' + SVG.play + "</svg>";
       bTocar.onclick = () => { enviar("tocar", { u: it.u }); toast("▶ " + it.n); };
       linha.append(capaEl(it.c), txt);
-      if (r.modo === "musica") {
+      if (r.modo === "musica" && String(it.u).startsWith("spotify:track:")) {
         const bFila = document.createElement("button");
         bFila.setAttribute("aria-label", "Adicionar à fila");
         bFila.innerHTML = '<svg viewBox="0 0 24 24">' + SVG.mais + "</svg>";
